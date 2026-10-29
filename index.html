@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="音声メモ">
+<title>音声メモ</title>
+<style>
+  :root { --ink:#1f2933; --sub:#5b6773; --line:#d9dee3; --bg:#f6f7f9; --card:#fff; --acc:#0b6bcb; --acc-ink:#fff; --note-bg:#fff8e1; --note-line:#f0d98a; --ok:#1e7d4f; --ng:#c0392b; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,"Hiragino Sans","Hiragino Kaku Gothic ProN",sans-serif; color:var(--ink); background:var(--bg); line-height:1.6; font-size:17px; -webkit-text-size-adjust:100%; }
+  main { max-width:720px; margin:0 auto; padding:12px 16px 48px; padding-top:max(12px, env(safe-area-inset-top)); }
+  header { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+  h1 { font-size:20px; margin:0; }
+  button { font:inherit; color:inherit; cursor:pointer; border-radius:10px; border:1px solid var(--line); background:var(--card); padding:10px 16px; min-height:44px; }
+  button.main { background:var(--acc); color:var(--acc-ink); border-color:var(--acc); font-weight:700; }
+  button:disabled { opacity:.45; cursor:default; }
+  .link { border:none; background:none; color:var(--sub); padding:8px; font-size:15px; }
+  textarea, input { width:100%; font:inherit; font-size:17px; color:var(--ink); background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 12px; line-height:1.6; }
+  textarea { resize:vertical; }
+  #input { min-height:min(34vh, 320px); }
+  .hint { color:var(--sub); font-size:14px; display:flex; justify-content:space-between; gap:8px; margin:4px 2px 0; }
+  #count { white-space:nowrap; }
+  .row-btns { display:flex; gap:10px; margin:12px 0; flex-wrap:wrap; }
+  .row-btns .main { flex:1; }
+  #status { color:var(--sub); font-size:15px; min-height:1.6em; }
+  #status.err { color:var(--ng); font-weight:700; }
+  #status.ok { color:var(--ok); font-weight:700; }
+  #status a { color:var(--acc); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; }
+  .lbl { font-size:13px; font-weight:700; color:var(--sub); margin:12px 2px 4px; }
+  .lbl:first-child { margin-top:0; }
+  .lbl small { font-weight:400; }
+  #title { font-size:19px; font-weight:700; }
+  .notice { background:var(--note-bg); border:1px solid var(--note-line); border-radius:10px; padding:10px 12px; margin:0 0 10px; font-size:15px; }
+  .notice ul { margin:4px 0 0; padding-left:1.2em; }
+  .meta { color:var(--sub); font-size:13px; margin-top:6px; text-align:right; }
+  #toast { position:fixed; left:50%; bottom:30px; transform:translateX(-50%); background:#1f2933; color:#fff; padding:10px 18px; border-radius:20px; font-size:15px; opacity:0; transition:opacity .2s; pointer-events:none; }
+  #toast.show { opacity:.92; }
+  dialog { border:1px solid var(--line); border-radius:14px; padding:16px; max-width:min(92vw, 480px); width:100%; color:var(--ink); background:var(--card); }
+  dialog label { display:block; font-size:15px; margin:10px 0 4px; }
+  dialog .muted { color:var(--sub); font-size:13px; }
+  [hidden] { display:none !important; }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink:#e6e9ec; --sub:#9aa5b1; --line:#3a424a; --bg:#15191d; --card:#1f252b; --note-bg:#3a3320; --note-line:#6b5a2a; --ok:#5cc98f; --ng:#ff7b6b; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>音声メモ</h1>
+    <button class="link" id="openSettings">⚙ 設定</button>
+  </header>
+
+  <section id="speak">
+    <textarea id="input" placeholder="ここをタップして、キーボードの🎤で話してください。&#10;途中で止まったら、もう一度🎤を押せば続きから話せます。"></textarea>
+    <div class="hint"><span>聞き間違いや「えー」はそのままでOK(AIが直します)。患者さんの情報は話さないでください。</span><span id="count">0字</span></div>
+    <div class="row-btns">
+      <button class="main" id="run">まとめる</button>
+      <button id="clear">消す</button>
+    </div>
+  </section>
+  <div id="status" role="status"></div>
+
+  <section id="result" hidden>
+    <div class="notice" id="checks" hidden></div>
+    <div class="card">
+      <div class="lbl">タイトル</div>
+      <input id="title">
+      <div class="lbl">タグ <small>(読点「、」で区切る)</small></div>
+      <input id="tags">
+      <div class="lbl">要点 <small>(1行に1つ)</small></div>
+      <textarea id="summary" rows="3"></textarea>
+      <div class="lbl">本文</div>
+      <textarea id="body" rows="8"></textarea>
+      <div class="lbl">やること <small>(1行に1つ・Notionでチェックできます)</small></div>
+      <textarea id="todos" rows="2" placeholder="なし"></textarea>
+    </div>
+    <div class="meta" id="meta"></div>
+    <div class="row-btns">
+      <button class="main" id="save">Notionに保存</button>
+      <button id="again">もう一度まとめる</button>
+    </div>
+    <div class="hint"><span>欄の中は直接直せます。直してから保存してください。</span></div>
+  </section>
+
+  <div class="row-btns" id="nextRow" hidden><button class="main" id="next">次のメモを話す</button></div>
+</main>
+
+<dialog id="settings">
+  <b>設定</b>
+  <label for="pass">合言葉</label>
+  <input id="pass" type="password" autocomplete="off">
+  <label for="api">中継サーバーのURL</label>
+  <input id="api" type="url" placeholder="ふつうは空欄のまま">
+  <p class="muted">この端末の中だけに保存します。</p>
+  <div class="row-btns"><button class="main" id="saveSettings">保存</button><button id="closeSettings">閉じる</button></div>
+</dialog>
+
+<div id="toast"></div>
+
+<script>
+// 公開版(GitHub Pages)は Cloudflare の中継サーバーへ、Macの試作はこのページと同じ場所へ
+const DEFAULT_API = location.hostname.endsWith("github.io") ? "https://onsei-memo.kinmon-push.workers.dev" : "";
+const $ = (id) => document.getElementById(id);
+const input = $("input");
+const esc = (s) => String(s).replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]));
+
+// この端末だけの保存(書きかけのメモと設定)。使えない環境でも動くようにする
+const store = {
+  get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+  del(k) { try { localStorage.removeItem(k); } catch {} },
+};
+// 音声カルテと同じ住所(ryutaro16.github.io)で保存場所を共有するので、名前に「memo:」を付けて分ける。
+// 合言葉は音声カルテと同じなので、まだ入れていなければ音声カルテで入れたものを使う
+let settings = store.get("memo:settings") || { pass: store.get("settings")?.pass || "", api: "" };
+// 書きかけ:話した内容・話し始めた日時・まとめ・保存したページ
+let draft = store.get("memo:draft") || { input: "", startedAt: null, memo: null, meta: "", savedUrl: null };
+const saveDraft = () => store.set("memo:draft", draft);
+
+const WEEK = "日月火水木金土";
+const pad = (n) => String(n).padStart(2, "0");
+// AIに渡す「2026-10-29(木) 15:49」と、Notionの日付「2026-10-29T15:49:00+09:00」
+function dateLabel(d) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}(${WEEK[d.getDay()]}) ${pad(d.getHours())}:${pad(d.getMinutes())}`; }
+function isoLocal(d) {
+  const off = -d.getTimezoneOffset();
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:00${off >= 0 ? "+" : "-"}${pad(Math.floor(Math.abs(off) / 60))}:${pad(Math.abs(off) % 60)}`;
+}
+
+const lines = (s) => s.split("\n").map((l) => l.replace(/^\s*[・\-☐]\s*/, "").trim()).filter(Boolean);
+// 画面の欄 ⇔ メモ
+function fillForm(m) {
+  $("title").value = m.title; $("tags").value = m.tags.join("、");
+  $("summary").value = m.summary.join("\n"); $("body").value = m.body; $("todos").value = m.todos.join("\n");
+  requestAnimationFrame(growAll);
+}
+function readForm() {
+  return {
+    title: $("title").value.trim(), tags: $("tags").value.split(/[、,，\s]+/).map((t) => t.trim()).filter(Boolean),
+    summary: lines($("summary").value), body: $("body").value.trim(), todos: lines($("todos").value),
+    needs_check: draft.memo?.needs_check ?? [],
+  };
+}
+// 欄の高さを中身に合わせる。画面がまだ表示されていない(幅0の)ときは測れないので、幅が決まってから・画面の幅が変わったときに測り直す
+function grow(t) { if (!t.offsetWidth) return; t.style.height = "auto"; t.style.height = t.scrollHeight + 2 + "px"; }
+const growAll = () => { for (const id of ["summary", "body", "todos"]) grow($(id)); };
+window.addEventListener("resize", growAll);
+window.addEventListener("pageshow", growAll);
+
+function render() {
+  input.value = draft.input; $("count").textContent = draft.input.length + "字";
+  const m = draft.memo;
+  $("result").hidden = !m;
+  if (m) {
+    fillForm(m);
+    const c = m.needs_check;
+    $("checks").hidden = !c.length;
+    $("checks").innerHTML = c.length ? `<b>確認してください(${c.length}件)</b> AIが確信を持てなかったところです。直したら保存してください。<ul>${c.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>` : "";
+    $("meta").textContent = draft.meta;
+  }
+  const saved = !!draft.savedUrl;
+  $("save").disabled = saved; $("again").disabled = saved; $("run").disabled = saved;
+  $("nextRow").hidden = !saved;
+  if (saved) setStatus(`保存しました。<a href="${esc(draft.savedUrl)}" target="_blank" rel="noopener">Notionで開く</a>`, "ok", true);
+}
+
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => t.classList.remove("show"), 1500);
+}
+function setStatus(msg, cls = "", html = false) { const s = $("status"); s[html ? "innerHTML" : "textContent"] = msg; s.className = cls; }
+
+async function post(path, body) {
+  let res;
+  try {
+    res = await fetch((settings.api || DEFAULT_API).replace(/\/$/, "") + path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Passphrase": settings.pass || "" },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new Error("サーバーにつながりません。通信状態と設定を確認してください");
+  }
+  const data = await res.json().catch(() => ({ error: `サーバーの応答を読めませんでした(${res.status})` }));
+  if (!res.ok || data.error) throw new Error(data.error || `エラー(${res.status})`);
+  return data;
+}
+
+let busy = false;
+async function withBusy(label, fn) {
+  if (busy) return;
+  busy = true; for (const id of ["run", "again", "save"]) $(id).disabled = true;
+  const t0 = Date.now();
+  const tick = setInterval(() => setStatus(`${label}… ${Math.round((Date.now() - t0) / 1000)}秒`), 500);
+  setStatus(`${label}…`);
+  try { await fn(); }
+  catch (e) { setStatus(e.message, "err"); }
+  finally { clearInterval(tick); busy = false; render(); if ($("status").className === "") setStatus(""); }
+}
+
+function run() {
+  const text = input.value.trim();
+  if (!text) { setStatus("話した内容がありません", "err"); return; }
+  withBusy("まとめています", async () => {
+    const start = new Date(draft.startedAt || Date.now());
+    const data = await post("/api/summarize", { text, date: dateLabel(start) });
+    draft.memo = data.memo;
+    draft.meta = `${data.label}・${data.sec.toFixed(1)}秒・約${data.yen.toFixed(1)}円`;
+    saveDraft();
+    setStatus("できました。確認してからNotionに保存してください", "ok");
+  });
+}
+
+function save() {
+  withBusy("Notionに保存しています", async () => {
+    draft.memo = readForm();
+    saveDraft();
+    const data = await post("/api/save", { memo: draft.memo, said: draft.input, iso: isoLocal(new Date(draft.startedAt || Date.now())) });
+    draft.savedUrl = data.url;
+    saveDraft();
+    toast("Notionに保存しました");
+  });
+}
+
+function reset() {
+  draft = { input: "", startedAt: null, memo: null, meta: "", savedUrl: null };
+  store.del("memo:draft"); setStatus(""); render(); input.focus();
+}
+
+$("run").onclick = run;
+$("again").onclick = run;
+$("save").onclick = save;
+$("next").onclick = reset;
+$("clear").onclick = () => {
+  if ((draft.input || draft.memo) && !draft.savedUrl && !confirm("話した内容とまとめを消します。よろしいですか?")) return;
+  reset();
+};
+input.addEventListener("input", () => {
+  // 話し始めた日時を、メモの日時にする
+  if (!draft.startedAt && input.value) draft.startedAt = Date.now();
+  if (!input.value) draft.startedAt = null;
+  draft.input = input.value; $("count").textContent = input.value.length + "字"; saveDraft();
+});
+for (const id of ["title", "tags", "summary", "body", "todos"]) {
+  $(id).addEventListener("input", (e) => { if (e.target.tagName === "TEXTAREA") grow(e.target); if (draft.memo) { draft.memo = readForm(); saveDraft(); } });
+}
+
+$("openSettings").onclick = () => { $("pass").value = settings.pass || ""; $("api").value = settings.api || ""; $("settings").showModal(); };
+$("closeSettings").onclick = () => $("settings").close();
+$("saveSettings").onclick = () => { settings = { pass: $("pass").value, api: $("api").value.trim() }; store.set("memo:settings", settings); $("settings").close(); toast("保存しました"); };
+
+render();
+</script>
+</body>
+</html>
