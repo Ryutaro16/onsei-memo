@@ -65,7 +65,7 @@
         <button id="recBtn" class="rec">● 録音を始める</button>
         <button id="retryBtn" hidden>文字起こしをやり直す</button>
       </div>
-      <div id="recStatus" class="hint">録音は黙っていても止まりません。止めると自動で文字にしてまとめます。</div>
+      <div id="recStatus" class="hint">録音は黙っていても止まりません。止めると文字になって下の欄に追記されます。直してから「まとめる」を押してください。</div>
     </div>
     <textarea id="input" placeholder="上の「録音を始める」で話すか、ここをタップしてキーボードの🎤で話してください。&#10;録音した内容は、ここに文字で入ります。"></textarea>
     <div class="hint"><span>聞き間違いや「えー」はそのままでOK(AIが直します)。患者さんの情報は話さないでください。</span><span id="count">0字</span></div>
@@ -174,7 +174,9 @@ function render() {
     $("meta").textContent = draft.meta;
   }
   const saved = !!draft.savedUrl;
-  $("save").disabled = saved; $("again").disabled = saved; $("run").disabled = saved || recording; $("recBtn").disabled = saved;
+  const transcribing = recording || sending || queue.length > 0 || (waitLast && !lastStopped);
+  $("save").disabled = saved; $("again").disabled = saved || transcribing; $("run").disabled = saved || transcribing; $("recBtn").disabled = saved;
+  if (!recording) $("recBtn").textContent = draft.input.trim() ? "● 続けて録音する" : "● 録音を始める";
   $("nextRow").hidden = !saved;
   if (saved) setStatus(`保存しました。<a href="${esc(draft.savedUrl)}" target="_blank" rel="noopener">Notionで開く</a>`, "ok", true);
 }
@@ -214,6 +216,7 @@ async function withBusy(label, fn) {
 }
 
 function run() {
+  if (recording || sending || queue.length || (waitLast && !lastStopped)) { setStatus("文字起こしが終わるまでお待ちください", "err"); return; }
   const text = input.value.trim();
   if (!text) { setStatus("話した内容がありません", "err"); return; }
   withBusy("まとめています", async () => {
@@ -249,7 +252,9 @@ function reset() {
 // ---- 録音(音声カルテ要約アプリと同じ作り)。無音でも止まらない。1分ごとに区切って文字起こしに送る ----
 const SEGMENT_MS = 60 * 1000;
 let recording = false, stream = null, recorder = null, segTimer = null, clock = null, wakeLock = null, recStart = 0;
-let queue = [], failed = [], sending = false, doneCount = 0, summarizeWhenDone = false;
+let queue = [], failed = [], sending = false, doneCount = 0;
+// 録音を止めたあと、最後の区切りが文字になるまで待つための印
+let waitLast = false, lastStopped = false, lenAtStart = 0;
 
 function pickType() {
   for (const t of ["audio/mp4", "audio/webm;codecs=opus", "audio/webm"]) if (window.MediaRecorder && MediaRecorder.isTypeSupported(t)) return t;
@@ -260,9 +265,9 @@ function recInfo() {
   const parts = [];
   if (recording) parts.push(`● 録音中 ${mmss(Date.now() - recStart)}`);
   if (doneCount) parts.push(`文字にした区切り ${doneCount}本`);
-  if (sending || queue.length) parts.push("文字起こし中…");
+  if (sending || queue.length || (waitLast && !lastStopped)) parts.push("文字起こし中…");
   if (failed.length) parts.push(`失敗 ${failed.length}本`);
-  $("recStatus").textContent = parts.length ? parts.join("・") : "録音は黙っていても止まりません。止めると自動で文字にしてまとめます。";
+  $("recStatus").textContent = parts.length ? parts.join("・") : "録音は黙っていても止まりません。止めると文字になって下の欄に追記されます。直してから「まとめる」を押してください。";
 }
 
 async function keepAwake() {
@@ -275,7 +280,11 @@ function startSegment() {
   const r = new MediaRecorder(stream, type ? { mimeType: type } : undefined);
   const parts = [];
   r.ondataavailable = (e) => { if (e.data && e.data.size) parts.push(e.data); };
-  r.onstop = () => { if (parts.length) { queue.push(new Blob(parts, { type: r.mimeType || type })); sendQueue(); } };
+  r.onstop = () => {
+    // 止めるボタンで止めたときは、これが最後の区切り(1分ごとの区切りでは recording のまま)
+    if (!recording) lastStopped = true;
+    if (parts.length) { queue.push(new Blob(parts, { type: r.mimeType || type })); sendQueue(); } else afterRecording();
+  };
   r.start();
   recorder = r;
 }
@@ -287,10 +296,10 @@ async function startRecording() {
   } catch {
     setStatus("マイクを使えませんでした。マイクの使用を許可してください", "err"); return;
   }
-  recording = true; recStart = Date.now(); summarizeWhenDone = false;
+  recording = true; recStart = Date.now(); waitLast = false; lastStopped = false; lenAtStart = draft.input.length;
   if (!draft.startedAt) { draft.startedAt = recStart; saveDraft(); }
-  $("recBtn").textContent = "■ 録音を止めてまとめる"; $("recBtn").classList.add("on");
-  $("run").disabled = true; setStatus("");
+  $("recBtn").textContent = "■ 録音を止める"; $("recBtn").classList.add("on");
+  setStatus(""); render();
   startSegment();
   segTimer = setInterval(() => { recorder.stop(); startSegment(); }, SEGMENT_MS);
   clock = setInterval(recInfo, 1000);
@@ -299,20 +308,19 @@ async function startRecording() {
 
 function stopRecording() {
   clearInterval(segTimer); clearInterval(clock);
-  recording = false; summarizeWhenDone = true;
-  recorder?.stop();
+  recording = false; waitLast = true;
+  if (recorder) recorder.stop(); else lastStopped = true;
   stream?.getTracks().forEach((t) => t.stop());
   wakeLock?.release?.(); wakeLock = null;
-  $("recBtn").textContent = "● 録音を始める"; $("recBtn").classList.remove("on");
-  $("run").disabled = !!draft.savedUrl;
-  recInfo(); maybeSummarize();
+  $("recBtn").classList.remove("on");
+  render(); recInfo();
 }
 $("recBtn").onclick = () => (recording ? stopRecording() : startRecording());
 
 // 区切りを順番に送る。失敗したらそこで止めて、順番が入れ替わらないようにする
 async function sendQueue() {
   if (sending || failed.length) return;
-  sending = true; recInfo();
+  sending = true; recInfo(); render();
   while (queue.length) {
     const blob = queue[0];
     let data = null, err = "";
@@ -336,16 +344,16 @@ async function sendQueue() {
     doneCount++; draft.stt = (draft.stt || 0) + (data.yen || 0); saveDraft();
     recInfo();
   }
-  sending = false; recInfo(); maybeSummarize();
+  sending = false; recInfo(); render(); afterRecording();
 }
 $("retryBtn").onclick = () => { queue = failed.concat(queue); failed = []; $("retryBtn").hidden = true; setStatus(""); sendQueue(); };
 
-// 録音を止めて、全部の区切りが文字になったら、そのまままとめる
-function maybeSummarize() {
-  if (summarizeWhenDone && !recording && !sending && !queue.length && !failed.length) {
-    summarizeWhenDone = false;
-    if (input.value.trim()) run(); else setStatus("聞き取れませんでした。もう一度録音してください", "err");
-  }
+// 録音を止めて、最後の区切りまで文字になったら知らせる(まとめは自動でしない。直したり続けて録音したりしてから「まとめる」)
+function afterRecording() {
+  if (!waitLast || !lastStopped || recording || sending || queue.length || failed.length) return;
+  waitLast = false; render(); recInfo();
+  if (draft.input.length > lenAtStart) setStatus("文字にしました。直したり続けて録音したりしてから「まとめる」を押してください", "ok");
+  else setStatus("聞き取れませんでした。もう一度録音してください", "err");
 }
 
 $("run").onclick = run;
