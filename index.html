@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="音声メモ">
+<title>音声メモ</title>
+<style>
+  :root { --ink:#1f2933; --sub:#5b6773; --line:#d9dee3; --bg:#f6f7f9; --card:#fff; --acc:#0b6bcb; --acc-ink:#fff; --note-bg:#fff8e1; --note-line:#f0d98a; --ok:#1e7d4f; --ng:#c0392b; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,"Hiragino Sans","Hiragino Kaku Gothic ProN",sans-serif; color:var(--ink); background:var(--bg); line-height:1.6; font-size:17px; -webkit-text-size-adjust:100%; }
+  main { max-width:720px; margin:0 auto; padding:12px 16px 48px; padding-top:max(12px, env(safe-area-inset-top)); }
+  header { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+  h1 { font-size:20px; margin:0; }
+  button { font:inherit; color:inherit; cursor:pointer; border-radius:10px; border:1px solid var(--line); background:var(--card); padding:10px 16px; min-height:44px; }
+  button.main { background:var(--acc); color:var(--acc-ink); border-color:var(--acc); font-weight:700; }
+  button:disabled { opacity:.45; cursor:default; }
+  .link { border:none; background:none; color:var(--sub); padding:8px; font-size:15px; }
+  textarea, input { width:100%; font:inherit; font-size:17px; color:var(--ink); background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 12px; line-height:1.6; }
+  textarea { resize:vertical; }
+  #input { min-height:min(34vh, 320px); }
+  .hint { color:var(--sub); font-size:14px; display:flex; justify-content:space-between; gap:8px; margin:4px 2px 0; }
+  #count { white-space:nowrap; }
+  .rec-box { margin-bottom:10px; }
+  .rec-box .row-btns { margin:0 0 6px; }
+  button.rec { flex:1; background:#c0392b; border-color:#c0392b; color:#fff; font-weight:700; }
+  button.rec.on { background:#fff; color:#c0392b; animation:blink 1.6s infinite; }
+  @keyframes blink { 50% { opacity:.6; } }
+  .row-btns { display:flex; gap:10px; margin:12px 0; flex-wrap:wrap; }
+  .row-btns .main { flex:1; }
+  #status { color:var(--sub); font-size:15px; min-height:1.6em; }
+  #status.err { color:var(--ng); font-weight:700; }
+  #status.ok { color:var(--ok); font-weight:700; }
+  #status a { color:var(--acc); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; }
+  .lbl { font-size:13px; font-weight:700; color:var(--sub); margin:12px 2px 4px; }
+  .lbl:first-child { margin-top:0; }
+  .lbl small { font-weight:400; }
+  #title { font-size:19px; font-weight:700; }
+  .notice { background:var(--note-bg); border:1px solid var(--note-line); border-radius:10px; padding:10px 12px; margin:0 0 10px; font-size:15px; }
+  .notice ul { margin:4px 0 0; padding-left:1.2em; }
+  .meta { color:var(--sub); font-size:13px; margin-top:6px; }
+  .cost { max-width:320px; margin-left:auto; }
+  .cost div { display:flex; justify-content:space-between; gap:14px; }
+  .cost .sum { border-top:1px solid var(--line); padding-top:3px; margin-top:3px; font-weight:700; color:var(--ink); }
+  .cost .note { justify-content:flex-end; font-size:11px; }
+  .usage-line { margin:28px 0 0; padding-top:10px; border-top:1px solid var(--line); color:var(--sub); font-size:13px; text-align:center; }
+  .usage-box { margin-top:16px; padding-top:12px; border-top:1px solid var(--line); font-size:15px; }
+  .usage-box .cost { max-width:none; margin:6px 0 0; color:var(--sub); }
+  .usage-box h4 { margin:16px 0 4px; font-size:14px; }
+  .month { border:1px solid var(--line); border-radius:10px; padding:8px 10px; margin:6px 0 0; font-size:14px; color:var(--sub); }
+  .month div { display:flex; justify-content:space-between; gap:10px; }
+  .month .head { color:var(--ink); font-weight:700; font-size:15px; margin-bottom:2px; }
+  dialog { max-height:88vh; overflow:auto; }
+  /* 本文:推測した言葉に色を付けられるよう、textarea ではなく直接書ける欄にする */
+  .editor { min-height:8em; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 12px; white-space:pre-wrap; word-break:break-word; outline:none; line-height:1.6; font-size:17px; }
+  .editor:focus { border-color:var(--acc); box-shadow:0 0 0 1px var(--acc); }
+  /* AIが推測した言葉:蛍光ペンで塗ったように(暗い画面でも同じ黄色) */
+  mark.guess { background:#ffd84a; color:#1f2933; border-radius:4px; padding:0 2px; -webkit-box-decoration-break:clone; box-decoration-break:clone; }
+  #toast { position:fixed; left:50%; bottom:30px; transform:translateX(-50%); background:#1f2933; color:#fff; padding:10px 18px; border-radius:20px; font-size:15px; opacity:0; transition:opacity .2s; pointer-events:none; }
+  #toast.show { opacity:.92; }
+  dialog { border:1px solid var(--line); border-radius:14px; padding:16px; max-width:min(92vw, 480px); width:100%; color:var(--ink); background:var(--card); }
+  dialog label { display:block; font-size:15px; margin:10px 0 4px; }
+  dialog .muted { color:var(--sub); font-size:13px; }
+  [hidden] { display:none !important; }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink:#e6e9ec; --sub:#9aa5b1; --line:#3a424a; --bg:#15191d; --card:#1f252b; --note-bg:#3a3320; --note-line:#6b5a2a; --ok:#5cc98f; --ng:#ff7b6b; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>音声メモ</h1>
+    <button class="link" id="openSettings">⚙ 設定</button>
+  </header>
+
+  <section id="speak">
+    <div class="rec-box">
+      <div class="row-btns">
+        <button id="recBtn" class="rec">● 録音を始める</button>
+        <button id="retryBtn" hidden>文字起こしをやり直す</button>
+      </div>
+      <div id="recStatus" class="hint">録音は黙っていても止まりません。止めると文字になって下の欄に追記されます。直してから「まとめる」を押してください。</div>
+    </div>
+    <textarea id="input" placeholder="上の「録音を始める」で話すか、ここをタップしてキーボードの🎤で話してください。&#10;録音した内容は、ここに文字で入ります。"></textarea>
+    <div class="hint"><span>聞き間違いや「えー」はそのままでOK(AIが直します)。患者さんの情報は話さないでください。</span><span id="count">0字</span></div>
+    <div class="row-btns">
+      <button class="main" id="run">まとめる</button>
+      <button id="clear">消す</button>
+    </div>
+  </section>
+  <div id="status" role="status"></div>
+
+  <section id="result" hidden>
+    <div class="notice" id="checks" hidden></div>
+    <div class="card">
+      <div class="lbl">タイトル</div>
+      <input id="title">
+      <div class="lbl">タグ <small>(読点「、」で区切る)</small></div>
+      <input id="tags">
+      <div class="lbl">要点 <small>(1行に1つ)</small></div>
+      <textarea id="summary" rows="3"></textarea>
+      <div class="lbl">本文</div>
+      <div id="body" class="editor"></div>
+      <div class="lbl">やること <small>(1行に1つ・Notionでチェックできます)</small></div>
+      <textarea id="todos" rows="2" placeholder="なし"></textarea>
+    </div>
+    <div class="meta" id="meta"></div>
+    <div class="row-btns">
+      <button class="main" id="save">Notionに保存</button>
+      <button id="again">もう一度まとめる</button>
+    </div>
+    <div class="hint"><span>欄の中は直接直せます。直してから保存してください。</span></div>
+  </section>
+
+  <div class="row-btns" id="nextRow" hidden><button class="main" id="next">次のメモを話す</button></div>
+  <footer class="usage-line" id="usageLine" hidden></footer>
+</main>
+
+<dialog id="settings">
+  <b>設定</b>
+  <label for="pass">合言葉</label>
+  <input id="pass" type="password" autocomplete="off">
+  <label for="api">中継サーバーのURL</label>
+  <input id="api" type="url" placeholder="ふつうは空欄のまま">
+  <p class="muted">この端末の中だけに保存します。</p>
+  <div class="row-btns"><button class="main" id="saveSettings">保存</button><button id="closeSettings">閉じる</button></div>
+  <div class="usage-box">
+    <b>使った金額と記録(すべての端末の合計)</b>
+    <div id="usageDetail" class="cost"></div>
+    <h4>月ごと</h4>
+    <div id="usageMonths"></div>
+  </div>
+</dialog>
+
+<div id="toast"></div>
+
+<script>
+// 公開版(GitHub Pages)は Cloudflare の中継サーバーへ、Macの試作はこのページと同じ場所へ
+const DEFAULT_API = location.hostname.endsWith("github.io") ? "https://onsei-memo.kinmon-push.workers.dev" : "";
+const $ = (id) => document.getElementById(id);
+const input = $("input");
+const esc = (s) => String(s).replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]));
+
+// この端末だけの保存(書きかけのメモと設定)。使えない環境でも動くようにする
+const store = {
+  get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+  del(k) { try { localStorage.removeItem(k); } catch {} },
+};
+// 音声カルテと同じ住所(ryutaro16.github.io)で保存場所を共有するので、名前に「memo:」を付けて分ける。
+// 合言葉は音声カルテと同じなので、まだ入れていなければ音声カルテで入れたものを使う
+let settings = store.get("memo:settings") || { pass: store.get("settings")?.pass || "", api: "" };
+// 書きかけ:話した内容・話し始めた日時・まとめ・保存したページ
+let draft = store.get("memo:draft") || { input: "", startedAt: null, memo: null, meta: "", savedUrl: null, stt: 0 };
+const saveDraft = () => store.set("memo:draft", draft);
+
+const WEEK = "日月火水木金土";
+const pad = (n) => String(n).padStart(2, "0");
+// AIに渡す「2026-10-29(木) 15:49」と、Notionの日付「2026-10-29T15:49:00+09:00」
+function dateLabel(d) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}(${WEEK[d.getDay()]}) ${pad(d.getHours())}:${pad(d.getMinutes())}`; }
+function isoLocal(d) {
+  const off = -d.getTimezoneOffset();
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:00${off >= 0 ? "+" : "-"}${pad(Math.floor(Math.abs(off) / 60))}:${pad(Math.abs(off) % 60)}`;
+}
+
+const lines = (s) => s.split("\n").map((l) => l.replace(/^\s*[・\-☐]\s*/, "").trim()).filter(Boolean);
+// 画面の欄 ⇔ メモ
+// 本文の受け渡しは「〘推測した言葉〙」の印つきの文字で行う(音声カルテと同じ)。画面では黄色の印、コピーや保存では印を外す
+const bodyBox = $("body");
+bodyBox.contentEditable = "plaintext-only";
+if (bodyBox.contentEditable !== "plaintext-only") bodyBox.contentEditable = "true";
+function setBody(marked) {
+  bodyBox.innerHTML = esc(marked).replace(/〘([^〘〙\n]*)〙/g, (_, w) => `<mark class="guess" data-o="${w.replace(/"/g, "&quot;")}">${w}</mark>`).replace(/[〘〙]/g, "");
+}
+function getBody() {
+  let s = "";
+  const walk = (n) => {
+    for (const c of n.childNodes) {
+      if (c.nodeType === Node.TEXT_NODE) s += c.data;
+      else if (c.nodeName === "BR") s += "\n";
+      else if (c.nodeName === "MARK") s += "〘" + c.textContent + "〙";
+      else { if ((c.nodeName === "DIV" || c.nodeName === "P") && s && !s.endsWith("\n")) s += "\n"; walk(c); }
+    }
+  };
+  walk(bodyBox);
+  return s.replace(/〘〙/g, "");
+}
+// 黄色の言葉を自分で直したら、その色を外し、確認の一覧からも消す(打っている位置はそのまま)
+function unmarkEdited() {
+  const sel = getSelection(), node = sel.anchorNode, off = sel.anchorOffset;
+  const fixed = [];
+  for (const m of bodyBox.querySelectorAll("mark")) {
+    if (m.textContent === m.dataset.o) continue;
+    fixed.push(m.dataset.o);
+    m.replaceWith(...m.childNodes);
+    if (node && node.isConnected) sel.collapse(node, off);
+  }
+  if (fixed.length && draft.memo) {
+    // 一覧は「言葉 … 理由」の形。同じ言葉がまだ黄色で残っていれば消さない
+    const still = new Set([...bodyBox.querySelectorAll("mark")].map((m) => m.dataset.o));
+    draft.memo.needs_check = draft.memo.needs_check.filter((c) => !fixed.some((w) => !still.has(w) && c.startsWith(w + " ")));
+    renderChecks(draft.memo.needs_check);
+  }
+}
+function fillForm(m) {
+  $("title").value = m.title; $("tags").value = m.tags.join("、");
+  $("summary").value = m.summary.join("\n"); setBody(m.body); $("todos").value = m.todos.join("\n");
+  requestAnimationFrame(growAll);
+}
+function readForm() {
+  return {
+    title: $("title").value.trim(), tags: $("tags").value.split(/[、,，\s]+/).map((t) => t.trim()).filter(Boolean),
+    summary: lines($("summary").value), body: getBody().trim(), todos: lines($("todos").value),
+    needs_check: draft.memo?.needs_check ?? [],
+  };
+}
+// 欄の高さを中身に合わせる。画面がまだ表示されていない(幅0の)ときは測れないので、幅が決まってから・画面の幅が変わったときに測り直す
+// 測るときに欄が一瞬縮むと、iPhoneでは画面が上に動いてしまう。外枠の高さを保ったまま測り、画面の位置も戻す
+function grow(t) {
+  if (!t.offsetWidth) return;
+  const y = window.scrollY, box = t.parentElement;
+  box.style.minHeight = box.offsetHeight + "px";
+  t.style.height = "auto"; t.style.height = t.scrollHeight + 2 + "px";
+  box.style.minHeight = "";
+  if (window.scrollY !== y) window.scrollTo(0, y);
+}
+const growAll = () => { for (const id of ["summary", "todos"]) grow($(id)); };
+window.addEventListener("resize", growAll);
+window.addEventListener("pageshow", growAll);
+
+// このメモの費用(音声カルテと同じ表)。meta = { stt:文字起こしの円, model, yen:今回のまとめの円, sec, runs:[このメモでまとめた各回の円] }
+function renderMeta(m) {
+  const el = $("meta");
+  if (!m || typeof m === "string") { el.textContent = m || ""; return; } // 古い形で保存された表示
+  const yen = (v) => `約${v.toFixed(1)}円`;
+  const rows = [];
+  if (m.stt) rows.push(["文字起こし(OpenAI)", yen(m.stt)]);
+  rows.push([`まとめ(${m.model})`, `${yen(m.yen)}・${m.sec.toFixed(1)}秒`]);
+  let html = rows.map(([k, v]) => `<div><span>${esc(k)}</span><span>${v}</span></div>`).join("");
+  html += `<div class="sum"><span>合計</span><span>${yen((m.stt || 0) + m.yen)}</span></div>`;
+  if (m.runs && m.runs.length > 1) html += `<div><span>もう一度の分を含む合計(まとめ${m.runs.length}回)</span><span>${yen((m.stt || 0) + m.runs.reduce((a, b) => a + b, 0))}</span></div>`;
+  html += `<div class="note">※1ドル150円で計算した目安</div>`;
+  el.innerHTML = `<div class="cost">${html}</div>`;
+}
+
+function renderChecks(c) {
+  $("checks").hidden = !c.length;
+  $("checks").innerHTML = c.length ? `<b>確認してください(${c.length}件)</b> AIが確信を持てなかったところです。<ul>${c.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>本文の<mark class="guess">黄色の言葉</mark>がその場所です。違っていたら直してください(直すと色が消えます。直さなければNotionでも黄色のまま残ります)。` : "";
+}
+
+function render() {
+  input.value = draft.input; $("count").textContent = draft.input.length + "字";
+  const m = draft.memo;
+  $("result").hidden = !m;
+  if (m) {
+    fillForm(m);
+    renderChecks(m.needs_check);
+    renderMeta(draft.meta);
+  }
+  const saved = !!draft.savedUrl;
+  const transcribing = recording || sending || queue.length > 0 || (waitLast && !lastStopped);
+  $("save").disabled = saved; $("again").disabled = saved || transcribing; $("run").disabled = saved || transcribing; $("recBtn").disabled = saved;
+  if (!recording) $("recBtn").textContent = draft.input.trim() ? "● 続けて録音する" : "● 録音を始める";
+  $("nextRow").hidden = !saved;
+  if (saved) setStatus(`保存しました。<a href="${esc(draft.savedUrl)}" target="_blank" rel="noopener">Notionで開く</a>`, "ok", true);
+}
+
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => t.classList.remove("show"), 1500);
+}
+function setStatus(msg, cls = "", html = false) { const s = $("status"); s[html ? "innerHTML" : "textContent"] = msg; s.className = cls; }
+
+async function post(path, body) {
+  let res;
+  try {
+    res = await fetch((settings.api || DEFAULT_API).replace(/\/$/, "") + path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Passphrase": settings.pass || "" },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new Error("サーバーにつながりません。通信状態と設定を確認してください");
+  }
+  const data = await res.json().catch(() => ({ error: `サーバーの応答を読めませんでした(${res.status})` }));
+  if (!res.ok || data.error) throw new Error(data.error || `エラー(${res.status})`);
+  return data;
+}
+
+let busy = false;
+async function withBusy(label, fn) {
+  if (busy) return;
+  busy = true; for (const id of ["run", "again", "save"]) $(id).disabled = true;
+  const t0 = Date.now();
+  const tick = setInterval(() => setStatus(`${label}… ${Math.round((Date.now() - t0) / 1000)}秒`), 500);
+  setStatus(`${label}…`);
+  try { await fn(); }
+  catch (e) { setStatus(e.message, "err"); }
+  finally { clearInterval(tick); busy = false; render(); if ($("status").className === "") setStatus(""); }
+}
+
+function run() {
+  if (recording || sending || queue.length || (waitLast && !lastStopped)) { setStatus("文字起こしが終わるまでお待ちください", "err"); return; }
+  const text = input.value.trim();
+  if (!text) { setStatus("話した内容がありません", "err"); return; }
+  withBusy("まとめています", async () => {
+    const start = new Date(draft.startedAt || Date.now());
+    const data = await post("/api/summarize", { text, date: dateLabel(start) });
+    draft.memo = data.memo;
+    // 「もう一度まとめる」の分も足せるよう、このメモでまとめた各回の金額を残す
+    const runs = (draft.meta && typeof draft.meta === "object" ? draft.meta.runs : null) || [];
+    draft.meta = { stt: draft.stt || 0, model: data.label, yen: data.yen, sec: data.sec, runs: [...runs, data.yen] };
+    if (data.usage) renderUsage(data.usage);
+    saveDraft();
+    setStatus("できました。確認してからNotionに保存してください", "ok");
+  });
+}
+
+function save() {
+  withBusy("Notionに保存しています", async () => {
+    draft.memo = readForm();
+    saveDraft();
+    const data = await post("/api/save", { memo: draft.memo, said: draft.input, iso: isoLocal(new Date(draft.startedAt || Date.now())) });
+    draft.savedUrl = data.url;
+    saveDraft();
+    if (data.usage) renderUsage(data.usage);
+    toast("Notionに保存しました");
+  });
+}
+
+function reset() {
+  if (recording) return;
+  draft = { input: "", startedAt: null, memo: null, meta: "", savedUrl: null, stt: 0 };
+  failed = []; queue = []; doneCount = 0; $("retryBtn").hidden = true;
+  store.del("memo:draft"); setStatus(""); render(); recInfo(); input.focus();
+}
+
+// ---- 録音(音声カルテ要約アプリと同じ作り)。無音でも止まらない。1分ごとに区切って文字起こしに送る ----
+const SEGMENT_MS = 60 * 1000;
+let recording = false, stream = null, recorder = null, segTimer = null, clock = null, wakeLock = null, recStart = 0;
+let queue = [], failed = [], sending = false, doneCount = 0;
+// 録音を止めたあと、最後の区切りが文字になるまで待つための印
+let waitLast = false, lastStopped = false, lenAtStart = 0;
+let firstSeg = false; // 録音の最初の区切りに印を付けて、中継サーバーで録音回数を数える
+
+function pickType() {
+  for (const t of ["audio/mp4", "audio/webm;codecs=opus", "audio/webm"]) if (window.MediaRecorder && MediaRecorder.isTypeSupported(t)) return t;
+  return "";
+}
+const mmss = (ms) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, "0")}`;
+function recInfo() {
+  const parts = [];
+  if (recording) parts.push(`● 録音中 ${mmss(Date.now() - recStart)}`);
+  if (doneCount) parts.push(`文字にした区切り ${doneCount}本`);
+  if (sending || queue.length || (waitLast && !lastStopped)) parts.push("文字起こし中…");
+  if (failed.length) parts.push(`失敗 ${failed.length}本`);
+  $("recStatus").textContent = parts.length ? parts.join("・") : "録音は黙っていても止まりません。止めると文字になって下の欄に追記されます。直してから「まとめる」を押してください。";
+}
+
+async function keepAwake() {
+  try { wakeLock = await navigator.wakeLock?.request("screen"); } catch { wakeLock = null; }
+}
+document.addEventListener("visibilitychange", () => { if (recording && document.visibilityState === "visible") keepAwake(); });
+
+function startSegment() {
+  const type = pickType();
+  const r = new MediaRecorder(stream, type ? { mimeType: type } : undefined);
+  const parts = [], first = firstSeg;
+  firstSeg = false;
+  r.ondataavailable = (e) => { if (e.data && e.data.size) parts.push(e.data); };
+  r.onstop = () => {
+    // 止めるボタンで止めたときは、これが最後の区切り(1分ごとの区切りでは recording のまま)
+    if (!recording) lastStopped = true;
+    if (parts.length) { const b = new Blob(parts, { type: r.mimeType || type }); b.rec = first; queue.push(b); sendQueue(); } else afterRecording();
+  };
+  r.start();
+  recorder = r;
+}
+
+async function startRecording() {
+  if (!window.MediaRecorder || !navigator.mediaDevices?.getUserMedia) { setStatus("この画面では録音できません。Safariのタブで開いてください", "err"); return; }
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+  } catch {
+    setStatus("マイクを使えませんでした。マイクの使用を許可してください", "err"); return;
+  }
+  recording = true; recStart = Date.now(); waitLast = false; lastStopped = false; lenAtStart = draft.input.length; firstSeg = true;
+  if (!draft.startedAt) { draft.startedAt = recStart; saveDraft(); }
+  $("recBtn").textContent = "■ 録音を止める"; $("recBtn").classList.add("on");
+  setStatus(""); render();
+  startSegment();
+  segTimer = setInterval(() => { recorder.stop(); startSegment(); }, SEGMENT_MS);
+  clock = setInterval(recInfo, 1000);
+  keepAwake(); recInfo();
+}
+
+function stopRecording() {
+  clearInterval(segTimer); clearInterval(clock);
+  recording = false; waitLast = true;
+  if (recorder) recorder.stop(); else lastStopped = true;
+  stream?.getTracks().forEach((t) => t.stop());
+  wakeLock?.release?.(); wakeLock = null;
+  $("recBtn").classList.remove("on");
+  render(); recInfo();
+}
+$("recBtn").onclick = () => (recording ? stopRecording() : startRecording());
+
+// 区切りを順番に送る。失敗したらそこで止めて、順番が入れ替わらないようにする
+async function sendQueue() {
+  if (sending || failed.length) return;
+  sending = true; recInfo(); render();
+  while (queue.length) {
+    const blob = queue[0];
+    let data = null, err = "";
+    for (let i = 0; i < 3 && !data; i++) {
+      try {
+        const res = await fetch((settings.api || DEFAULT_API).replace(/\/$/, "") + "/api/transcribe" + (blob.rec ? "?rec=1" : ""), {
+          method: "POST", headers: { "Content-Type": blob.type.split(";")[0], "X-Passphrase": settings.pass || "" }, body: blob,
+        });
+        const d = await res.json().catch(() => ({ error: `サーバーの応答を読めませんでした(${res.status})` }));
+        if (!res.ok || d.error) { err = d.error || `エラー(${res.status})`; if (res.status < 500) break; }
+        else data = d;
+      } catch { err = "サーバーにつながりません"; }
+      if (!data && i < 2) await new Promise((ok) => setTimeout(ok, 1500 * (i + 1)));
+    }
+    queue.shift();
+    if (!data) { failed.push(blob, ...queue); queue = []; $("retryBtn").hidden = false; setStatus("文字起こしに失敗しました:" + err, "err"); break; }
+    if (data.text) {
+      draft.input += (draft.input && !draft.input.endsWith("\n") ? "\n" : "") + data.text;
+      input.value = draft.input; $("count").textContent = draft.input.length + "字";
+    }
+    doneCount++; draft.stt = (draft.stt || 0) + (data.yen || 0); saveDraft();
+    if (data.usage) renderUsage(data.usage);
+    recInfo();
+  }
+  sending = false; recInfo(); render(); afterRecording();
+}
+$("retryBtn").onclick = () => { queue = failed.concat(queue); failed = []; $("retryBtn").hidden = true; setStatus(""); sendQueue(); };
+
+// 録音を止めて、最後の区切りまで文字になったら知らせる(まとめは自動でしない。直したり続けて録音したりしてから「まとめる」)
+function afterRecording() {
+  if (!waitLast || !lastStopped || recording || sending || queue.length || failed.length) return;
+  waitLast = false; render(); recInfo();
+  if (draft.input.length > lenAtStart) setStatus("文字にしました。直したり続けて録音したりしてから「まとめる」を押してください", "ok");
+  else setStatus("聞き取れませんでした。もう一度録音してください", "err");
+}
+
+$("run").onclick = run;
+$("again").onclick = run;
+$("save").onclick = save;
+$("next").onclick = reset;
+$("clear").onclick = () => {
+  if ((draft.input || draft.memo) && !draft.savedUrl && !confirm("話した内容とまとめを消します。よろしいですか?")) return;
+  reset();
+};
+input.addEventListener("input", () => {
+  // 話し始めた日時を、メモの日時にする
+  if (!draft.startedAt && input.value) draft.startedAt = Date.now();
+  if (!input.value) draft.startedAt = null;
+  draft.input = input.value; $("count").textContent = input.value.length + "字"; saveDraft();
+});
+for (const id of ["title", "tags", "summary", "body", "todos"]) {
+  $(id).addEventListener("input", (e) => { if (e.target.tagName === "TEXTAREA") grow(e.target); if (id === "body") unmarkEdited(); if (draft.memo) { draft.memo = readForm(); saveDraft(); } });
+}
+
+$("openSettings").onclick = () => { $("pass").value = settings.pass || ""; $("api").value = settings.api || ""; $("settings").showModal(); };
+$("closeSettings").onclick = () => $("settings").close();
+$("saveSettings").onclick = () => { settings = { pass: $("pass").value, api: $("api").value.trim() }; store.set("memo:settings", settings); $("settings").close(); toast("保存しました"); loadUsage(); };
+
+// ---- 使った金額(全部の端末の合計。中継サーバーで数える。音声カルテとは別に数える) ----
+const yenText = (v) => `約${v < 100 ? v.toFixed(1) : Math.round(v).toLocaleString()}円`;
+const dateText = (iso) => { const d = new Date(iso); return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`; };
+const durText = (sec) => { const m = Math.round(sec / 60); return m < 1 ? `${Math.round(sec)}秒` : m < 60 ? `${m}分` : `${Math.floor(m / 60)}時間${m % 60}分`; };
+const n = (v) => (v || 0).toLocaleString();
+// 1つの期間(全期間か1か月)の内訳
+function usageRows(t) {
+  return `<div><span>まとめ(Claude)${n(t.claudeCount)}回</span><span>${yenText(t.claudeYen)}</span></div>` +
+    `<div><span>文字起こし(OpenAI)${durText(t.openaiSec)}</span><span>${yenText(t.openaiYen)}</span></div>` +
+    `<div><span>録音</span><span>${n(t.recCount)}回・${durText(t.openaiSec)}・${n(t.recChars)}字</span></div>` +
+    `<div><span>Notionに保存</span><span>${n(t.saveCount)}件・${n(t.saveChars)}字</span></div>`;
+}
+function statsNote(u) {
+  const a = dateText(u.since), b = dateText(u.statsSince || u.since);
+  return a === b ? `${a}から数えています` : `金額は${a}から、録音回数・文字数は${b}から数えています`;
+}
+function renderUsage(u) {
+  if (!u) { $("usageLine").hidden = true; $("usageDetail").textContent = "まだ記録がありません"; $("usageMonths").textContent = ""; return; }
+  const total = u.claudeYen + u.openaiYen;
+  $("usageLine").hidden = false;
+  $("usageLine").textContent = `これまでの合計 ${yenText(total)}(${dateText(u.since)}から)`;
+  $("usageDetail").innerHTML = usageRows(u) +
+    `<div class="sum"><span>これまでの合計</span><span>${yenText(total)}</span></div>` +
+    `<div class="note">${statsNote(u)}(1ドル150円で計算した目安)</div>`;
+  // 新しい月から順に
+  $("usageMonths").innerHTML = Object.keys(u.months || {}).sort().reverse().map((k) => {
+    const t = u.months[k], [y, mo] = k.split("-");
+    return `<div class="month"><div class="head"><span>${y}年${Number(mo)}月</span><span>${yenText(t.claudeYen + t.openaiYen)}</span></div>${usageRows(t)}</div>`;
+  }).join("");
+}
+async function loadUsage() { try { renderUsage((await post("/api/usage", { action: "get" })).usage); } catch { /* 合言葉が未設定などのときは出さない */ } }
+loadUsage();
+
+render();
+</script>
+</body>
+</html>
